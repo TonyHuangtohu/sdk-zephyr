@@ -40,6 +40,42 @@ static void *z_heap_aligned_alloc(struct k_heap *heap, size_t align, size_t size
 	return mem;
 }
 
+static void *z_heap_aligned_realloc(struct k_heap *heap, void * mem, size_t align, size_t size)
+{
+	struct k_heap **heap_ref;
+	struct k_heap  **heap_temp;
+	size_t __align;
+
+	/*
+	 * Adjust the size to make room for our heap reference.
+	 * Merge a rewind bit with align value (see sys_heap_aligned_alloc()).
+	 * This allows for storing the heap pointer right below the aligned
+	 * boundary without wasting any memory.
+	 */
+	if (size_add_overflow(size, sizeof(heap_ref), &size)) {
+		return NULL;
+	}
+	__align = align | sizeof(heap_ref); 
+    if(mem != NULL)
+	{
+        heap_temp = mem;
+        mem = heap_temp - 1;
+	}
+
+	mem = k_heap_aligned_realloc(heap, mem, __align, size, K_NO_WAIT); 
+	if (mem == NULL) {
+		return NULL;
+	}
+
+	heap_ref = mem;
+	*heap_ref = heap;
+	mem = ++heap_ref;
+	__ASSERT(align == 0 || ((uintptr_t)mem & (align - 1)) == 0,
+		 "misaligned memory at %p (align = %zu)", mem, align);
+
+	return mem;
+}
+
 void k_free(void *ptr)
 {
 	struct k_heap **heap_ref;
@@ -111,6 +147,39 @@ void *k_calloc(size_t nmemb, size_t size)
 	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_heap_sys, k_calloc, _SYSTEM_HEAP, ret);
 
 	return ret;
+}
+
+void *k_aligned_realloc(void * mem, size_t align, size_t size)
+{
+	__ASSERT(align / sizeof(void *) >= 1
+		&& (align % sizeof(void *)) == 0,
+		"align must be a multiple of sizeof(void *)");
+
+	__ASSERT((align & (align - 1)) == 0,
+		"align must be a power of 2");
+
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_heap_sys, k_aligned_realloc, _SYSTEM_HEAP);
+
+	void *ret = z_heap_aligned_realloc(_SYSTEM_HEAP, mem, align, size);
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_heap_sys, k_aligned_realloc, _SYSTEM_HEAP, ret);
+
+	return ret;
+
+
+
+}
+
+void *k_realloc(void * mem, size_t size)
+{
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_heap_sys, k_realloc, _SYSTEM_HEAP);
+
+	void *ret = k_aligned_realloc(mem, sizeof(void *), size);
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_heap_sys, k_realloc, _SYSTEM_HEAP, ret);
+
+	return ret;
+	
 }
 
 void k_thread_system_pool_assign(struct k_thread *thread)

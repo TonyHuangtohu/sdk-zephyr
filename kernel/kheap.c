@@ -106,6 +106,53 @@ void *k_heap_aligned_alloc(struct k_heap *h, size_t align, size_t bytes,
 	return ret;
 }
 
+
+void *k_heap_aligned_realloc(struct k_heap *h, void *mem, size_t align, size_t bytes,
+			k_timeout_t timeout)
+{
+	int64_t now, end = sys_clock_timeout_end_calc(timeout);
+	void *ret = NULL;
+
+	end = K_TIMEOUT_EQ(timeout, K_FOREVER) ? INT64_MAX : end;
+
+	k_spinlock_key_t key = k_spin_lock(&h->lock);
+
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_heap, aligned_realloc, h, timeout);
+
+	__ASSERT(!arch_is_in_isr() || K_TIMEOUT_EQ(timeout, K_NO_WAIT), "");
+
+	bool blocked_alloc = false;
+
+	while (ret == NULL) {
+		ret = sys_heap_aligned_realloc(&h->heap, mem, align, bytes);
+
+		now = sys_clock_tick_get();
+		if (!IS_ENABLED(CONFIG_MULTITHREADING) ||
+		    (ret != NULL) || ((end - now) <= 0)) {
+			break;
+		}
+
+		if (!blocked_alloc) {
+			blocked_alloc = true;
+
+			SYS_PORT_TRACING_OBJ_FUNC_BLOCKING(k_heap, aligned_realloc, h, timeout);
+		} else {
+			/**
+			 * @todo	Trace attempt to avoid empty trace segments
+			 */
+		}
+
+		(void) z_pend_curr(&h->lock, key, &h->wait_q,
+				   K_TICKS(end - now));
+		key = k_spin_lock(&h->lock);
+	}
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_heap, aligned_realloc, h, timeout, ret);
+
+	k_spin_unlock(&h->lock, key);
+	return ret;
+}
+
 void *k_heap_alloc(struct k_heap *h, size_t bytes, k_timeout_t timeout)
 {
 	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_heap, alloc, h, timeout);
@@ -116,6 +163,18 @@ void *k_heap_alloc(struct k_heap *h, size_t bytes, k_timeout_t timeout)
 
 	return ret;
 }
+# if 0
+void *k_heap_realloc(struct k_heap *h, void *mem, size_t bytes, k_timeout_t timeout)
+{
+	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_heap, realloc, h, timeout);
+
+	void *ret = k_heap_aligned_realloc(h, mem, sizeof(void *), bytes, timeout);
+
+	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_heap, realloc, h, timeout, ret);
+
+	return ret;
+}
+#endif
 
 void k_heap_free(struct k_heap *h, void *mem)
 {

@@ -5360,6 +5360,10 @@ extern void k_free(void *ptr);
  */
 extern void *k_calloc(size_t nmemb, size_t size);
 
+extern void *k_realloc(void * mem, size_t size);
+
+void *k_heap_aligned_realloc(struct k_heap *h, void *mem, size_t align, size_t bytes,
+			k_timeout_t timeout);
 /** @} */
 
 /* polling API - PRIVATE */
