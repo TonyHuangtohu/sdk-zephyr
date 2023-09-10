@@ -9,3 +9,7 @@
 		compatible = "zephyr,cdc-acm-uart";
 	};
 };
+
+&uart0 {
+    status = "disabled";
+};
