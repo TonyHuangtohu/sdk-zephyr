@@ -15,6 +15,7 @@
 #if defined(CONFIG_SETTINGS_FILE)
 #include <zephyr/fs/fs.h>
 #include <zephyr/fs/littlefs.h>
+#include <zephyr/storage/flash_map.h>
 #endif
 
 #define STORAGE_PARTITION	storage_partition
@@ -417,12 +418,61 @@ static void example_without_handler(void)
 		printk("OK.\n");
 	}
 }
+#define PARTITION_NODE DT_NODELABEL(lfs1)
+
+#if DT_NODE_EXISTS(PARTITION_NODE)
+FS_FSTAB_DECLARE_ENTRY(PARTITION_NODE);
+#else /* PARTITION_NODE */
+FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
+static struct fs_mount_t lfs_storage_mnt = {
+	.type = FS_LITTLEFS,
+	.fs_data = &storage,
+	.storage_dev = (void *)FIXED_PARTITION_ID(storage_partition),
+	.mnt_point = "/lfs",
+};
+#endif /* PARTITION_NODE */
+
+	struct fs_mount_t *mountpoint =
+#if DT_NODE_EXISTS(PARTITION_NODE)
+		&FS_FSTAB_ENTRY(PARTITION_NODE)
+#else
+		&lfs_storage_mnt
+#endif
+		;
+
+
+static int littlefs_flash_erase(unsigned int id)
+{
+	const struct flash_area *pfa;
+	int rc;
+
+	rc = flash_area_open(id, &pfa);
+	if (rc < 0) {
+		printk("FAIL: unable to find flash area %u: %d\n",
+			id, rc);
+		return rc;
+	}
+
+	printk("Area %u at 0x%x on %s for %u bytes\n",
+		   id, (unsigned int)pfa->fa_off, pfa->fa_dev->name,
+		   (unsigned int)pfa->fa_size);
+
+	/* Optional wipe flash contents */
+	if(1) {//(IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
+		rc = flash_area_erase(pfa, 0, pfa->fa_size);
+		printk("Erasing flash area ... %d", rc);
+	}
+
+	flash_area_close(pfa);
+	return rc;
+}
 
 static void example_initialization(void)
 {
 	int rc;
 
 #if defined(CONFIG_SETTINGS_FILE)
+#if !DT_NODE_EXISTS(PARTITION_NODE)
 	FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(cstorage);
 
 	/* mounting info */
@@ -432,20 +482,28 @@ static void example_initialization(void)
 	.storage_dev = (void *)STORAGE_PARTITION_ID,
 	.mnt_point = "/ff"
 	};
+#endif	
 
-	rc = fs_mount(&littlefs_mnt);
-	if (rc != 0) {
-		printk("mounting littlefs error: [%d]\n", rc);
-	} else {
-
-		rc = fs_unlink(CONFIG_SETTINGS_FILE_PATH);
-		if ((rc != 0) && (rc != -ENOENT)) {
-			printk("can't delete config file%d\n", rc);
-		} else {
-			printk("FS initialized: OK\n");
-		}
+	/* Do not mount if auto-mount has been enabled */
+#if !DT_NODE_EXISTS(PARTITION_NODE) ||						\
+	!(FSTAB_ENTRY_DT_MOUNT_FLAGS(PARTITION_NODE) & FS_MOUNT_FLAG_AUTOMOUNT)
+	rc = fs_mount(mountpoint);
+	if (rc < 0) {
+		LOG_PRINTK("FAIL: mount id %" PRIuPTR " at %s: %d\n",
+		       (uintptr_t)mp->storage_dev, mp->mnt_point, rc);
+		return rc;
 	}
+	LOG_PRINTK("%s mount: %d\n", mp->mnt_point, rc);
+#else
+	printk("%s automounted\n", mountpoint->mnt_point);
 #endif
+
+#endif
+	//rc = littlefs_flash_erase((uintptr_t)mountpoint->storage_dev);
+	//if (rc < 0) {
+	//	printk("littlefs_flash_erase: fail (err %d)\n", rc);
+	//	return rc;
+	//}
 
 	rc = settings_subsys_init();
 	if (rc) {
