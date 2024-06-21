@@ -418,6 +418,13 @@ static void example_without_handler(void)
 		printk("OK.\n");
 	}
 }
+
+static void example_initialization(void)
+{
+	int rc;
+
+#if defined(CONFIG_SETTINGS_FILE)
+
 #define PARTITION_NODE DT_NODELABEL(lfs1)
 
 #if DT_NODE_EXISTS(PARTITION_NODE)
@@ -440,38 +447,6 @@ static struct fs_mount_t lfs_storage_mnt = {
 #endif
 		;
 
-
-static int littlefs_flash_erase(unsigned int id)
-{
-	const struct flash_area *pfa;
-	int rc;
-
-	rc = flash_area_open(id, &pfa);
-	if (rc < 0) {
-		printk("FAIL: unable to find flash area %u: %d\n",
-			id, rc);
-		return rc;
-	}
-
-	printk("Area %u at 0x%x on %s for %u bytes\n",
-		   id, (unsigned int)pfa->fa_off, pfa->fa_dev->name,
-		   (unsigned int)pfa->fa_size);
-
-	/* Optional wipe flash contents */
-	if(1) {//(IS_ENABLED(CONFIG_APP_WIPE_STORAGE)) {
-		rc = flash_area_erase(pfa, 0, pfa->fa_size);
-		printk("Erasing flash area ... %d", rc);
-	}
-
-	flash_area_close(pfa);
-	return rc;
-}
-
-static void example_initialization(void)
-{
-	int rc;
-
-#if defined(CONFIG_SETTINGS_FILE)
 #if !DT_NODE_EXISTS(PARTITION_NODE)
 	FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(cstorage);
 
@@ -499,11 +474,6 @@ static void example_initialization(void)
 #endif
 
 #endif
-	//rc = littlefs_flash_erase((uintptr_t)mountpoint->storage_dev);
-	//if (rc < 0) {
-	//	printk("littlefs_flash_erase: fail (err %d)\n", rc);
-	//	return rc;
-	//}
 
 	rc = settings_subsys_init();
 	if (rc) {
